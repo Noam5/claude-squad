@@ -118,7 +118,10 @@ func (r *InstanceRenderer) setWidth(width int) {
 // ɹ and ɻ are other options.
 const branchIcon = "Ꮧ"
 
-func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, hasMultipleRepos bool) string {
+// Render renders a single instance. In compact mode the blank line above and below the
+// instance is dropped, which halves its height at the cost of a denser list.
+func (r *InstanceRenderer) Render(
+	i *session.Instance, idx int, selected bool, hasMultipleRepos bool, compact bool) string {
 	prefix := fmt.Sprintf(" %d. ", idx)
 	if idx >= 10 {
 		prefix = prefix[:len(prefix)-1]
@@ -128,6 +131,10 @@ func (r *InstanceRenderer) Render(i *session.Instance, idx int, selected bool, h
 	if !selected {
 		titleS = titleStyle
 		descS = listDescStyle
+	}
+	if compact {
+		titleS = titleS.PaddingTop(0)
+		descS = descS.PaddingBottom(0)
 	}
 
 	// add spinner next to title if it's running
@@ -283,6 +290,17 @@ func (l *List) visibleRange(heights []int) (start, end int) {
 	return l.scrollOffset, end
 }
 
+// renderInstances renders every instance and returns them along with their heights.
+func (l *List) renderInstances(compact bool) (rendered []string, heights []int) {
+	rendered = make([]string, len(l.items))
+	heights = make([]int, len(l.items))
+	for i, item := range l.items {
+		rendered[i] = l.renderer.Render(item, i+1, i == l.selectedIdx, len(l.repos) > 1, compact)
+		heights[i] = lipgloss.Height(rendered[i])
+	}
+	return rendered, heights
+}
+
 func (l *List) String() string {
 	const titleText = " Instances "
 	const autoYesText = " auto-yes "
@@ -313,11 +331,12 @@ func (l *List) String() string {
 	// Render only the instances which fit in the list's height. Rendering past it makes
 	// the whole frame taller than the terminal, which scrolls the top of the list (the
 	// first instances) out of view instead of the bottom.
-	rendered := make([]string, len(l.items))
-	heights := make([]int, len(l.items))
-	for i, item := range l.items {
-		rendered[i] = l.renderer.Render(item, i+1, i == l.selectedIdx, len(l.repos) > 1)
-		heights[i] = lipgloss.Height(rendered[i])
+	//
+	// Prefer the roomy layout, and fall back to the compact one when that doesn't fit:
+	// showing every instance beats the padding around them.
+	rendered, heights := l.renderInstances(false)
+	if l.height > 0 && listHeaderHeight+spanHeight(heights, 0, len(heights)) > l.height {
+		rendered, heights = l.renderInstances(true)
 	}
 
 	start, end := l.visibleRange(heights)

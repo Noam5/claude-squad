@@ -86,7 +86,12 @@ func visibleTitles(t *testing.T, l *List, titles []string) []string {
 	out := ansiRe.ReplaceAllString(l.String(), "")
 	var visible []string
 	for i, title := range titles {
-		if strings.Contains(out, fmt.Sprintf("%d.  %s", i+1, title)) {
+		// The renderer trims a space off the prefix once the index reaches two digits.
+		prefix := fmt.Sprintf(" %d. ", i+1)
+		if i+1 >= 10 {
+			prefix = prefix[:len(prefix)-1]
+		}
+		if strings.Contains(out, fmt.Sprintf("%s %s", prefix, title)) {
 			visible = append(visible, title)
 		}
 	}
@@ -158,4 +163,60 @@ func TestStringUnboundedHeightRendersEverything(t *testing.T) {
 	l.SetSize(40, 0)
 
 	require.Equal(t, titles, visibleTitles(t, l, titles))
+}
+
+// titleLines returns the line numbers on which instance titles were rendered.
+func titleLines(t *testing.T, l *List, titles []string) []int {
+	t.Helper()
+	out := ansiRe.ReplaceAllString(l.String(), "")
+	var lines []int
+	for i, line := range strings.Split(out, "\n") {
+		for j, title := range titles {
+			prefix := fmt.Sprintf(" %d. ", j+1)
+			if j+1 >= 10 {
+				prefix = prefix[:len(prefix)-1]
+			}
+			if strings.Contains(line, fmt.Sprintf("%s %s", prefix, title)) {
+				lines = append(lines, i)
+			}
+		}
+	}
+	return lines
+}
+
+func TestRenderCompactHalvesTheHeight(t *testing.T) {
+	l := newTestList("a")
+	l.renderer.setWidth(40)
+
+	roomy := l.renderer.Render(l.items[0], 1, false, false, false)
+	compact := l.renderer.Render(l.items[0], 1, false, false, true)
+
+	// The roomy layout keeps a blank line above and below each instance.
+	require.Equal(t, 4, lipgloss.Height(roomy))
+	require.Equal(t, 2, lipgloss.Height(compact))
+}
+
+func TestStringCompactsToFitEveryInstance(t *testing.T) {
+	titles := []string{"alpha", "bravo", "charlie", "delta", "echo",
+		"foxtrot", "golf", "hotel", "india", "juliett"}
+	l := newTestList(titles...)
+	// What a 40 row terminal leaves for the list. The roomy layout needs 53 rows for
+	// ten instances, so the list falls back to the compact one rather than hiding any.
+	l.SetSize(40, 34)
+
+	require.Equal(t, titles, visibleTitles(t, l, titles))
+	require.LessOrEqual(t, lipgloss.Height(l.String()), 34)
+	lines := titleLines(t, l, titles)
+	require.Equal(t, 3, lines[1]-lines[0], "compact instances are 3 rows apart")
+}
+
+func TestStringKeepsRoomyLayoutWhenEverythingFits(t *testing.T) {
+	titles := []string{"alpha", "bravo", "charlie", "delta", "echo",
+		"foxtrot", "golf", "hotel", "india", "juliett"}
+	l := newTestList(titles...)
+	l.SetSize(40, 60)
+
+	require.Equal(t, titles, visibleTitles(t, l, titles))
+	lines := titleLines(t, l, titles)
+	require.Equal(t, 5, lines[1]-lines[0], "roomy instances are 5 rows apart")
 }
